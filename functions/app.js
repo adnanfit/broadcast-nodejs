@@ -17,7 +17,7 @@ let broadcaster = null;
 const viewers = new Set();
 
 // Serve static files
-app.use(express.static("public"));
+// app.use(express.static("public"));
 
 // Middleware to log all socket events
 io.use((socket, next) => {
