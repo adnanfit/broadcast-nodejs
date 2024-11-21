@@ -33,3 +33,6 @@ coverage/
 
 # npm package files
 *.tgz
+
+# Local Netlify folder
+.netlify
