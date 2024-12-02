@@ -1,30 +1,81 @@
+const { Server } = require("socket.io");
 const express = require("express");
 const http = require("http");
-const socketIo = require("socket.io");
-const serverless = require("serverless-http");
 
 const app = express();
+
+// Store active connections
+let broadcaster = null;
+const viewers = new Set();
+
+// Serve static files
+app.use(express.static("public"));
+
+// Middleware to log all socket events
 const server = http.createServer(app);
-
-server.setMaxListeners(20);
-
-const io = socketIo(server, {
+const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
-    credentials: true,
   },
   pingTimeout: 60000,
   pingInterval: 25000,
 });
 
-let broadcaster = null;
-const viewers = new Set();
+// Handle connections
+io.on("connection", (socket) => {
+  console.log(`New client connected: ${socket.id}`);
 
-io.use((socket, next) => {
-  console.log(`New connection attempt: ${socket.id}`);
-  next();
+  // Handle broadcaster connection
+  socket.on("broadcaster", () => {
+    broadcaster = socket.id;
+    socket.broadcast.emit("broadcaster");
+    console.log(`Broadcaster registered: ${broadcaster}`);
+  });
+
+  // Handle viewer connection
+  socket.on("watcher", () => {
+    if (!broadcaster) {
+      socket.emit("no-broadcaster-available");
+      console.log(
+        `Viewer ${socket.id} attempted to connect but no broadcaster available`
+      );
+      return;
+    }
+
+    viewers.add(socket.id);
+    socket.to(broadcaster).emit("watcher", socket.id);
+    console.log(
+      `Viewer registered: ${socket.id}, Total viewers: ${viewers.size}`
+    );
+  });
+
+  // Handle WebRTC signaling
+  socket.on("offer", (id, message) => {
+    console.log(`Offer from ${socket.id} to ${id}`);
+    socket.to(id).emit("offer", socket.id, message);
+  });
+
+  socket.on("answer", (id, message) => {
+    console.log(`Answer from ${socket.id} to ${id}`);
+    socket.to(id).emit("answer", socket.id, message);
+  });
+
+  socket.on("candidate", (id, message) => {
+    console.log(`ICE candidate from ${socket.id} to ${id}`);
+    socket.to(id).emit("candidate", socket.id, message);
+  });
+
+  // Handle disconnections
+  socket.on("disconnect", () => {
+    handleDisconnect(socket);
+  });
+
+  // Send current state to newly connected client
+  socket.emit("connection-state", {
+    hasBroadcaster: !!broadcaster,
+    viewerCount: viewers.size,
+  });
 });
 
 function handleDisconnect(socket) {
@@ -48,81 +99,6 @@ function handleDisconnect(socket) {
   );
 }
 
-io.on("connection", (socket) => {
-  console.log(`New client connected: ${socket.id}`);
-
-  socket.on("broadcaster", () => {
-    broadcaster = socket.id;
-    socket.broadcast.emit("broadcaster");
-    console.log(`Broadcaster registered: ${broadcaster}`);
-  });
-
-  socket.on("watcher", () => {
-    if (!broadcaster) {
-      socket.emit("no-broadcaster-available");
-      console.log(
-        `Viewer ${socket.id} attempted to connect but no broadcaster available`
-      );
-      return;
-    }
-    viewers.add(socket.id);
-    socket.to(broadcaster).emit("watcher", socket.id);
-    console.log(
-      `Viewer registered: ${socket.id}, Total viewers: ${viewers.size}`
-    );
-  });
-
-  socket.on("offer", (id, message) => {
-    console.log(`Offer from ${socket.id} to ${id}`);
-    socket.to(id).emit("offer", socket.id, message);
-  });
-
-  socket.on("answer", (id, message) => {
-    console.log(`Answer from ${socket.id} to ${id}`);
-    socket.to(id).emit("answer", socket.id, message);
-  });
-
-  socket.on("candidate", (id, message) => {
-    console.log(`ICE candidate from ${socket.id} to ${id}`);
-    socket.to(id).emit("candidate", socket.id, message);
-  });
-
-  socket.on("disconnect", () => {
-    handleDisconnect(socket);
-  });
-
-  socket.on("broadcaster-disconnected", () => {
-    if (socket.id === broadcaster) {
-      handleDisconnect(socket);
-    }
-  });
-
-  socket.on("error", (error) => {
-    console.error(`Socket error for ${socket.id}:`, error);
-  });
-
-  socket.emit("connection-state", {
-    hasBroadcaster: !!broadcaster,
-    viewerCount: viewers.size,
-  });
-});
-
-server.on("error", (error) => {
-  console.error("Server error:", error);
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
-});
-
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received. Shutting down gracefully...");
-  server.close(() => {
-    console.log("Server closed");
-    process.exit(0);
-  });
-});
-
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
@@ -132,5 +108,13 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Export the handler for Netlify Lambda
-module.exports.handler = serverless(app);
+// Serve the index route
+app.get("/", (req, res) => {
+  res.json({ message: "Welcome to Broadcast server" });
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Socket.io server running on port ${PORT}`);
+});
