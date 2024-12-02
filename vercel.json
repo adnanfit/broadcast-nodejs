@@ -1,10 +1,1 @@
-{
-    "version": 2,
-    "builds": [
-      {
-        "src": "api/socket.js",
-        "use": "@vercel/node"
-      }
-    ]
-  }
-  
+{ "version": 2, "rewrites": [{ "source": "/(.*)", "destination": "/api" }] }
