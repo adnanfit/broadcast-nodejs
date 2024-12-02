@@ -1,19 +1,9 @@
 const { Server } = require("socket.io");
-const express = require("express");
-const http = require("http");
+const { createServer } = require("http");
 
-const app = express();
-
-// Store active connections
-let broadcaster = null;
-const viewers = new Set();
-
-// Serve static files
-app.use(express.static("public"));
-
-// Middleware to log all socket events
-const server = http.createServer(app);
-const io = new Server(server, {
+// Create HTTP server for Socket.IO
+const httpServer = createServer();
+const io = new Server(httpServer, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
@@ -22,7 +12,11 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-// Handle connections
+// Store active connections
+let broadcaster = null;
+const viewers = new Set();
+
+// Handle socket connections
 io.on("connection", (socket) => {
   console.log(`New client connected: ${socket.id}`);
 
@@ -99,22 +93,23 @@ function handleDisconnect(socket) {
   );
 }
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    broadcaster: !!broadcaster,
-    viewers: viewers.size,
-  });
-});
+// Health check endpoint for Vercel (HTTP request handler)
+module.exports = async (req, res) => {
+  if (req.method === "GET" && req.url === "/health") {
+    res.json({
+      status: "healthy",
+      broadcaster: !!broadcaster,
+      viewers: viewers.size,
+    });
+  } else if (req.method === "GET" && req.url === "/") {
+    res.json({ message: "Welcome to Broadcast server" });
+  } else {
+    res.status(404).send("Not Found");
+  }
+};
 
-// Serve the index route
-app.get("/", (req, res) => {
-  res.json({ message: "Welcome to Broadcast server" });
-});
-
-// Start the server
+// Start the HTTP server (this will run in the Vercel serverless environment)
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Socket.io server running on port ${PORT}`);
 });
