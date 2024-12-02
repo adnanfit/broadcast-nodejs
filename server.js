@@ -139,6 +139,9 @@ server.listen(port, () => {
   console.log(`WebRTC signaling server ready`);
 });
 
+app.get("/", (req, res) => {
+  res.json({ message: "Weclome to Broadcast server" });
+});
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
